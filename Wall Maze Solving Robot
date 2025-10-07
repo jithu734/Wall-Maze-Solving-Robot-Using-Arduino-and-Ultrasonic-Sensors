@@ -1,0 +1,216 @@
+#include <Wire.h>
+#include <MPU6050.h>
+MPU6050 mpu;
+unsigned long lastTime;
+float zAngle = 0;
+float gyroZOffset = 0;
+bool turning = true;
+
+// Blink timing
+unsigned long lastBlinkTime = 0;
+bool eyesOpen = true;
+
+// Front, Left, Right ultrasonic trigger pins
+const int TRIG_PINS[3] = {12, 3, 7};    
+const int ECHO_PINS[3] = {13, 4, 8};
+
+#define IN1 10            
+#define IN2 9           
+#define IN3 6             
+#define IN4 5         
+#define NUM_SENSORS 3
+
+float distances[NUM_SENSORS];  
+unsigned long turnStartTime;    
+ 
+float i=0,j=0,k=0;
+int a=0;
+
+void setup() {  
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    pinMode(TRIG_PINS[i], OUTPUT);
+    pinMode(ECHO_PINS[i], INPUT);
+  }
+
+  Serial.begin(9600); 
+  Wire.begin();
+  mpu.initialize();
+
+  if (mpu.testConnection()) {
+    Serial.println("MPU6050 connected!");
+  } else {
+    Serial.println("MPU6050 connection failed!");
+  }
+
+  // --- Quick Calibration ---
+  Serial.println("Quick calibration... keep robot still!");
+  long sum = 0;
+  int samples = 1000;   // takes ~0.5s
+  for (int i = 0; i < samples; i++) {
+    int16_t ax, ay, az, gx, gy, gz;
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    sum += gz;
+  }
+  gyroZOffset = sum / (float)samples;
+  Serial.print("Gyro Z offset: ");
+  Serial.println(gyroZOffset);
+
+lastTime = micros();
+
+
+}
+
+void loop() {
+  updateZAngle();
+  readAllDistances();
+  i = distances[0];
+  j = distances[1];
+  k = distances[2];
+  
+
+  Serial.print("Front: "); Serial.print(i);
+  Serial.print(" Left: "); Serial.print(j);
+  Serial.print(" Right: "); Serial.println(k);
+ if(j < 4){
+   slightright();   
+
+    }
+    else if(j>4.5 )
+    {
+     slightleft();
+    }
+  if(i>=10){
+    
+    Serial.println("moveForward ");
+    moveForward();
+  
+  }else 
+  {
+    Serial.print("stopMotors "); 
+    stopMotors();
+    delay(500);
+    if(k>=10){
+      Serial.print("Turnleft "); 
+      
+      TurnRight();
+      delay(10);
+    }
+    
+  }
+  
+if(j>=20){
+Turnleft();
+}
+  
+}
+
+// ---------------- FUNCTIONS ----------------
+
+void readAllDistances() {
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    distances[i] = getDistance(TRIG_PINS[i], ECHO_PINS[i]);
+  }
+}
+
+float getDistance(int trigPin, int echoPin) {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH, 30000);
+  return duration == 0 ? 1000 : (duration * 0.034) / 2; 
+}
+
+void moveForward() {
+  analogWrite(IN1, 250);  
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  analogWrite(IN4, 220);
+}
+
+void stopMotors() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+}
+
+
+void Turnleft() {
+  Serial.println("turnleft");
+  moveForward();
+  delay(250);
+  zAngle = 0;
+  while (zAngle < 68) {
+  updateZAngle();
+  analogWrite(IN1, 40);  
+  analogWrite(IN2, 0);
+  analogWrite(IN3, 40);
+  analogWrite(IN4, 0);
+  }
+  stopMotors();
+    delay(400);
+  moveForward();
+  delay(300);
+ 
+  zAngle = 0;
+}
+
+void TurnRight() {
+  Serial.println("turnRight");
+  moveForward();
+
+   zAngle = 0;
+  while (zAngle > -80) {
+  updateZAngle();
+    Serial.print("Z Angle: ");
+    Serial.println(zAngle);
+  analogWrite(IN1, 0);  
+  analogWrite(IN2, 40);
+  digitalWrite(IN3, LOW);
+  analogWrite(IN4, 40);
+  }
+  moveForward();
+  delay(10);
+   zAngle = 0;
+}
+
+void slightleft(){
+  
+  analogWrite(IN1, 220);  
+  analogWrite(IN2, LOW);
+  analogWrite(IN3, 0);
+  analogWrite(IN4, 50);
+  delay(50);
+  Serial.println("turnLeft");
+}
+
+void slightright(){
+  analogWrite(IN1, 50);  
+  analogWrite(IN2, 0);
+  analogWrite(IN3, LOW);
+  analogWrite(IN4,190);
+  delay(50);
+  Serial.println("turnRight");
+}
+void updateZAngle() {
+  int16_t ax, ay, az, gx, gy, gz;
+  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+  unsigned long currentTime = micros();
+  float dt = (currentTime - lastTime) / 1000000.0;
+  lastTime = currentTime;
+
+  float gzDegPerSec = (gz - gyroZOffset) / 131.0;
+  zAngle += gzDegPerSec * dt;
+
+  // keep angle between -180 and +180
+  if (zAngle > 180) zAngle -= 360;
+  else if (zAngle < -180) zAngle += 360;
+  }
